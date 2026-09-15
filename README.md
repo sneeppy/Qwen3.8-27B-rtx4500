@@ -2,23 +2,24 @@
 
 Стек инференса **Qwen3.8-27B** на GPU архитектуры **Ada Lovelace (sm_89)**: RTX 4500 Ada Generation 24 ГБ. Внутри образа — **vLLM 0.28.0** с патчами из этого репозитория.
 
-Запуск: `check-env.sh` → `.env` → `docker compose up -d --build` → Caddy.
+Запуск: `check-env.sh` → `.env` → `docker compose up -d --build` → Open WebUI.
 
-Канонический запуск — **только Docker** на Linux-хосте с RTX 4500 Ada. HTTP API — OpenAI-совместимый vLLM. С хоста: `http://127.0.0.1:8080` (только loopback). Снаружи — Caddy, см. раздел ниже.
+Канонический запуск — **только Docker** на Linux-хосте с RTX 4500 Ada. Open WebUI даёт чат в браузере, а vLLM — OpenAI-совместимый API. С хоста: чат `http://127.0.0.1:3000`, API `http://127.0.0.1:8080`. Оба порта слушают только loopback; снаружи чат открывает Caddy.
 
 Машиночитаемые требования: [`stack-requirements.txt`](stack-requirements.txt). Что делает стек иначе, чем stock vLLM: [docs/optimizations.md](docs/optimizations.md). Подводные камни при отладке: [docs/gotchas.md](docs/gotchas.md).
 
 ```bash
 ./check-env.sh
 cp .env.example .env                # CTX, API_KEY, PORT, CADDY_NETWORK, …
+# В .env: WEBUI_SECRET_KEY=$(openssl rand -hex 32)
 docker compose up -d --build
 ```
 
 | Этап | Что происходит |
 |---|---|
-| `docker compose up -d --build` | Сборка образа на сервере (~20 мин в первый раз, дальше слой-кэш). |
+| `docker compose up -d --build` | Сборка vLLM-образа на сервере и загрузка закреплённого образа Open WebUI. |
 | Первый старт контейнера | Скачивание и requant модели (~20 ГБ) в `./models`, затем torch.compile / CUDA graphs. Healthcheck ждёт до 15 минут. |
-| Повторный старт | Веса и volume `qwen-cache` на месте; загрузка быстрее. |
+| Повторный старт | Веса, compile-кэш и база Open WebUI остаются в Docker volumes. |
 
 Проверка GPU в Docker:
 
@@ -42,9 +43,10 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 
    ```bash
    cp .env.example .env
+   echo "WEBUI_SECRET_KEY=$(openssl rand -hex 32)" >> .env
    ```
 
-   Обязательно задайте `CADDY_NETWORK`. Для всего, что не loopback, задайте `API_KEY`.
+   Обязательно задайте `CADDY_NETWORK`. Рекомендуется также сгенерировать `API_KEY`.
 
 3. Сборка и запуск на этом хосте:
 
@@ -52,7 +54,9 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
    docker compose up -d --build
    ```
 
-4. Проверка API:
+4. Откройте чат: `http://127.0.0.1:3000`. Первый зарегистрированный пользователь становится администратором.
+
+5. Проверка API:
 
    ```bash
    curl http://127.0.0.1:8080/v1/chat/completions \
@@ -65,7 +69,7 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
      }'
    ```
 
-Дефолты контейнера: `MODE=single`, `SPEC=dflash2`, `PREFIX_CACHE=1`, контекст **32768**, порт **8080**, `--parallel`/слоты задаёт launcher. Поднимайте `CTX` в `.env` только после успешного прогона на 32K.
+Дефолты контейнера: `MODE=single`, `SPEC=dflash2`, `PREFIX_CACHE=1`, контекст **32768**, API-порт **8080**, UI-порт **3000**. Поднимайте `CTX` в `.env` только после успешного прогона на 32K.
 
 Веса **не кладутся в образ** — только volume. Хосту не нужны nvcc, GCC и нативный vLLM.
 
@@ -126,6 +130,10 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 | `MODEL_DIR` | Каталог весов на хосте → `/app/models` | `./models` |
 | `API_KEY` | Если задан — ключ vLLM | пусто (API открыт на loopback) |
 | `CADDY_NETWORK` | Имя Docker-сети Caddy | **обязательно** |
+| `WEBUI_SECRET_KEY` | Подпись сессий Open WebUI | **обязательно**, случайные 32 байта |
+| `WEBUI_PORT` | Loopback-порт чата | `3000` |
+| `WEBUI_NAME` | Название интерфейса | `Qwen3.8-27B` |
+| `WEBUI_ENABLE_SIGNUP` | Разрешить регистрацию | `True` для первого входа |
 | `HF_TOKEN` | Если Hugging Face режет анонимные скачивания | пусто |
 | `EXTRA_ARGS` | Доп. флаги `vllm serve` | пусто |
 
@@ -161,6 +169,7 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 ## Клиентский API
 
 Сервер — OpenAI-совместимый REST (`/v1/chat/completions`, `/health`, …).
+Open WebUI обращается к нему внутри Docker-сети по `http://qwen:8080/v1`; ключ остаётся на backend UI и не передаётся браузеру.
 
 ### cURL
 
@@ -203,9 +212,9 @@ print(response.choices[0].message.content)
 
 ---
 
-## Caddy (UI без проброса 8080)
+## Open WebUI и Caddy
 
-Порт 8080 слушает только `127.0.0.1` на хосте. Снаружи UI и API идут через Caddy в той же Docker-сети.
+Open WebUI хранит пользователей, настройки и историю в volume `open-webui-data`. Порт 3000 слушает только `127.0.0.1`; Caddy достигает UI по общей Docker-сети. API vLLM остаётся отдельно на loopback 8080.
 
 1. Узнать сеть Caddy:
 
@@ -221,7 +230,7 @@ print(response.choices[0].message.content)
    qwen.4500.dev.econdata.ru {
            encode gzip
 
-           reverse_proxy qwen38-rtx4500:8080 {
+           reverse_proxy qwen38-open-webui:8080 {
                    flush_interval -1
            }
    }
@@ -229,7 +238,13 @@ print(response.choices[0].message.content)
 
 4. `docker compose up -d` (пересоздаст контейнер qwen в сети Caddy), затем перезагрузить Caddy.
 
-Чат: `https://qwen.4500.dev.econdata.ru`. API: `https://qwen.4500.dev.econdata.ru/v1/...`. Ключ `API_KEY` по-прежнему на vLLM.
+Чат: `https://qwen.4500.dev.econdata.ru`. Первый зарегистрированный пользователь получает роль администратора; после этого рекомендуется поставить `WEBUI_ENABLE_SIGNUP=False` и пересоздать UI:
+
+```bash
+docker compose up -d --force-recreate open-webui
+```
+
+Сырой API не публикуется через этот домен и остаётся на `http://127.0.0.1:8080/v1`.
 
 ---
 
@@ -241,6 +256,8 @@ print(response.choices[0].message.content)
 4. **Первый boot медленный.** Цифры скорости снимайте со второго/третьего старта (прогретый `qwen-cache`).
 5. **WSL2:** `VLLM_WSL2_ENABLE_PIN_MEMORY=1` в `.env`, иначе V2 runner падает на UVA. На native Linux переменная безвредна.
 6. **Ключ.** Loopback без ключа допустим. Как только сайт в Caddy торчит наружу — задайте `API_KEY`.
+7. **Регистрация.** После создания администратора выключите `WEBUI_ENABLE_SIGNUP`, если публичная регистрация не нужна.
+8. **Конфигурация Open WebUI хранится в volume.** Если позже изменить endpoint через `.env`, сохранённая настройка может иметь приоритет; проверьте Admin Panel → Connections.
 
 Проверка установки внутри контейнера: `docker compose run --rm qwen verify`.
 

@@ -33,6 +33,10 @@ compose                 = docker-compose.yml
 dockerfile              = Dockerfile
 cuda_base_image         = nvidia/cuda:13.0.3-base-ubuntu24.04
 listen                  = 127.0.0.1:8080 (Caddy on CADDY_NETWORK for external access)
+chat_ui                 = ghcr.io/open-webui/open-webui:v0.11.1
+chat_container          = qwen38-open-webui
+chat_listen             = 127.0.0.1:3000; Caddy -> qwen38-open-webui:8080
+chat_data               = Docker volume open-webui-data
 
 [image_cuda]
 cuda_version            = 13.0.3
@@ -70,5 +74,7 @@ default_context         = 32768 (raise after a successful 32K run; named CTX=fas
 max_context             = 65536 fast / ~131072 long / ~245760 huge (KVarN, lossy KV)
 default_port            = 8080
 api_key_env             = API_KEY (aliased to VLLM_API_KEY)
+webui_secret_env        = WEBUI_SECRET_KEY (required, persistent)
+webui_backend           = http://qwen:8080/v1
 prompt_caching          = PREFIX_CACHE=1
 parallel_slots          = launcher MAX_SEQS (8 single / 64 batch); residency is GDN-state limited

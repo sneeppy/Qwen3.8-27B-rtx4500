@@ -143,8 +143,25 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
             WARNINGS=$((WARNINGS + 1))
         fi
     fi
+
+    if [[ -z "${WEBUI_SECRET_KEY:-}" ]]; then
+        echo "${FAIL} WEBUI_SECRET_KEY is empty. Generate one: openssl rand -hex 32"
+        ERRORS=$((ERRORS + 1))
+    elif (( ${#WEBUI_SECRET_KEY} < 32 )); then
+        echo "${WARN} WEBUI_SECRET_KEY is shorter than 32 characters; use a random 32-byte key."
+        WARNINGS=$((WARNINGS + 1))
+    else
+        echo "${PASS} WEBUI_SECRET_KEY is configured."
+    fi
+
+    if [[ -z "${API_KEY:-}" ]]; then
+        echo "${WARN} API_KEY is empty. vLLM has no authentication (loopback-only API is still protected from the network)."
+        WARNINGS=$((WARNINGS + 1))
+    else
+        echo "${PASS} API_KEY is configured for vLLM and Open WebUI."
+    fi
 else
-    echo "${INFO} No .env yet. Copy .env.example and set CADDY_NETWORK (required) and API_KEY."
+    echo "${INFO} No .env yet. Copy .env.example and set CADDY_NETWORK, WEBUI_SECRET_KEY and API_KEY."
 fi
 
 MODEL_DIR_RAW="${MODEL_DIR:-${MODELS_DIR:-./models}}"

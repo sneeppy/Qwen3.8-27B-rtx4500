@@ -1,15 +1,3 @@
-# Qwen3.8-27B on RTX 4500 Ada.
-#
-#   ./check-env.sh
-#   cp .env.example .env                 # PORT, CTX, API_KEY, MODEL_DIR, CADDY_NETWORK
-#   docker compose up -d --build
-#
-# Knobs in .env (never committed). Engine is vLLM — see README.md.
-# One GPU: MODE=single (default) or MODE=batch, not both at once.
-#
-#   docker compose run --rm qwen prepare
-#   docker compose run --rm qwen verify
-
 x-qwen: &qwen
   # Image is built on the Ada host. No CI, no registry push.
   image: qwen38-rtx4500-serve:latest
@@ -51,6 +39,39 @@ services:
       - default
       - caddy
 
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.1
+    container_name: qwen38-open-webui
+    depends_on:
+      qwen:
+        condition: service_healthy
+    environment:
+      ENABLE_OLLAMA_API: "False"
+      ENABLE_OPENAI_API: "True"
+      OPENAI_API_BASE_URLS: "http://qwen:8080/v1"
+      OPENAI_API_KEYS: "${API_KEY:-local}"
+      WEBUI_AUTH: "True"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:?Set WEBUI_SECRET_KEY in .env}"
+      ENABLE_SIGNUP: "${WEBUI_ENABLE_SIGNUP:-True}"
+      WEBUI_NAME: "${WEBUI_NAME:-Qwen3.8-27B}"
+      ANONYMIZED_TELEMETRY: "False"
+      DO_NOT_TRACK: "True"
+      SCARF_NO_ANALYTICS: "True"
+    ports:
+      - "127.0.0.1:${WEBUI_PORT:-3000}:8080"
+    volumes:
+      - open-webui-data:/app/backend/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - default
+      - caddy
+
 networks:
   caddy:
     external: true
@@ -58,3 +79,4 @@ networks:
 
 volumes:
   qwen-cache:
+  open-webui-data:
