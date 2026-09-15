@@ -1,0 +1,74 @@
+# ==============================================================================
+# Stack Requirements: Qwen3.8-27B on NVIDIA Ada (sm_89)
+# ==============================================================================
+# Serving is Docker-only for the canonical path (docker compose). Host validation:
+# check-env.sh. Engine is patched vLLM 0.28.0.
+
+[hardware]
+gpu_arch                = sm_89
+gpu_name                = NVIDIA RTX 4500 Ada Generation (24 GB GDDR6 ECC)
+vram_min_gb             = 24
+vram_recommended_gb     = 24
+host_ram_min_gb         = 32
+storage_recommended     = SSD / NVMe (prepared weights ~20 GB + image ~9.5 GB)
+memory_bandwidth_note   = ~432 GB/s (Ada workstation GDDR6)
+
+[driver]
+# CUDA 13 wheels inside the image.
+nvidia_driver_min       = 575.00
+nvidia_driver_recommended = 580+ (or current datacenter/studio branch)
+
+[host]
+docker                  = Engine + Compose v2
+nvidia_container_toolkit = required
+host_cuda_toolkit       = not required
+host_compiler           = not required
+host_vllm               = not required
+lock_clocks             = not used (Ada boosts under its own 210 W TGP)
+
+[docker]
+image                   = qwen38-rtx4500-serve:latest (built on the host; no CI registry)
+container_name          = qwen38-rtx4500
+compose                 = docker-compose.yml
+dockerfile              = Dockerfile
+cuda_base_image         = nvidia/cuda:13.0.3-base-ubuntu24.04
+listen                  = 127.0.0.1:8080 (Caddy on CADDY_NETWORK for external access)
+
+[image_cuda]
+cuda_version            = 13.0.3
+cuda_target_arch        = 89 (Ada)
+required_libs           = libcudart (from vLLM wheels + driver libcuda.so.1)
+
+[upstream_vllm]
+package                 = vllm == 0.28.0
+torch                   = 2.13 / cu130
+triton                  = 3.7.1
+patches                 = patches/ (order: patches/series)
+kvarn                   = kvarn/install.sh at image build
+
+[model]
+model_family            = Qwen3.8
+model_size              = 27B
+format                  = compressed-tensors W4A16 AutoRound + in-place head requant (not GGUF)
+huggingface_repo        = dbirks/Qwen3.8-27B-W4A16-AutoRound
+prepared_dir            = models/Qwen3.8-27B-W4A16-AutoRound-fast (preferred) or .../Qwen3.8-27B-W4A16-AutoRound
+approx_size_gb          = ~20 after prepare
+drafter                 = models/Qwen3.8-27B-DFlash2-W4A16 (~1.2 GB) when SPEC=dflash2
+num_layers              = 64 hybrid + MTP / DFlash2 draft
+hybrid_layers           = 48 GatedDeltaNet
+full_attention_layers   = 16
+q_heads                 = 24
+kv_heads                = 4
+gqa_ratio               = 6
+head_dim                = 256
+served_model_name       = qwen3.8-27b
+
+[runtime_flags]
+default_mode            = MODE=single (SPEC=dflash2, PREFIX_CACHE=1)
+batch_mode              = MODE=batch (no speculation, high concurrency)
+default_context         = 32768 (raise after a successful 32K run; named CTX=fast/long/huge also work)
+max_context             = 65536 fast / ~131072 long / ~245760 huge (KVarN, lossy KV)
+default_port            = 8080
+api_key_env             = API_KEY (aliased to VLLM_API_KEY)
+prompt_caching          = PREFIX_CACHE=1
+parallel_slots          = launcher MAX_SEQS (8 single / 64 batch); residency is GDN-state limited

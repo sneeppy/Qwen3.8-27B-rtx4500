@@ -1,0 +1,60 @@
+# Qwen3.8-27B on RTX 4500 Ada.
+#
+#   ./check-env.sh
+#   cp .env.example .env                 # PORT, CTX, API_KEY, MODEL_DIR, CADDY_NETWORK
+#   docker compose up -d --build
+#
+# Knobs in .env (never committed). Engine is vLLM — see README.md.
+# One GPU: MODE=single (default) or MODE=batch, not both at once.
+#
+#   docker compose run --rm qwen prepare
+#   docker compose run --rm qwen verify
+
+x-qwen: &qwen
+  # Image is built on the Ada host. No CI, no registry push.
+  image: qwen38-rtx4500-serve:latest
+  build: .
+  ipc: host
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    HOME: /cache
+    NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    HOST: 0.0.0.0
+    PORT: "${PORT:-8080}"
+    API_KEY: "${API_KEY:-}"
+    VLLM_API_KEY: "${VLLM_API_KEY:-${API_KEY:-}}"
+    HF_TOKEN: "${HF_TOKEN:-}"
+  volumes:
+    - ${MODEL_DIR:-${MODELS_DIR:-./models}}:/app/models
+    - qwen-cache:/cache
+
+services:
+  qwen:
+    <<: *qwen
+    container_name: qwen38-rtx4500
+    command: ${MODE:-single}
+    ports:
+      # Loopback only. Outside access goes through Caddy on CADDY_NETWORK.
+      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
+    gpus: all
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:${PORT:-8080}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 900s
+    networks:
+      - default
+      - caddy
+
+networks:
+  caddy:
+    external: true
+    name: ${CADDY_NETWORK:?Set CADDY_NETWORK in .env to the Docker network Caddy is on}
+
+volumes:
+  qwen-cache:

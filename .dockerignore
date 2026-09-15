@@ -1,0 +1,10 @@
+.git
+venv
+hfvenv
+models
+.env
+api_key.txt
+*.log
+__pycache__
+**/__pycache__
+profiles

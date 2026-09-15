@@ -1,0 +1,8 @@
+__pycache__/
+api_key.txt
+models/
+qwen.log
+venv/
+.env
+*.local.env
+*.gguf
