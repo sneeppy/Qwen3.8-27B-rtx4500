@@ -110,7 +110,7 @@ docker compose run --rm qwen prepare
 
 TGP карты ~210 W; частоты GPU трогать не нужно.
 
-Шина памяти ~**432 ГБ/с**. После прогрева второго бута измерьте tok/s сами клиентом.
+Шина памяти ~**432 ГБ/с**. На этой карте в `MODE=single` + DFlash2 один чат даёт примерно **80 tok/s** decode (см. [Скорость](#скорость-toks)).
 
 ---
 
@@ -133,6 +133,7 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 | `WEBUI_NAME` | Название интерфейса | `Qwen3.8-27B` |
 | `WEBUI_ENABLE_SIGNUP` | Разрешить регистрацию | `True` для первого входа |
 | `HF_TOKEN` | Если Hugging Face режет анонимные скачивания | пусто |
+| `REQ_METRICS` | Тайминги и `usage` в каждом JSON ответа vLLM | `0`. `1` — для замера с сервера, UI не меняет |
 | `EXTRA_ARGS` | Доп. флаги `vllm serve` | пусто |
 
 `HOST` внутри контейнера vLLM всегда `0.0.0.0`. С хоста API проброшен только на `127.0.0.1:8080`. Чат слушает `WEBUI_BIND` (по умолчанию все интерфейсы, порт 3000).
@@ -228,7 +229,7 @@ qwen.4500.dev.econdata.ru {
         encode gzip
         reverse_proxy qwen38-open-webui:8080 {
                 flush_interval -1
-        }
+  }
 }
 ```
 
@@ -240,6 +241,25 @@ docker compose up -d --force-recreate open-webui
 
 ---
 
+## Скорость (tok/s)
+
+Цифры ниже — **RTX 4500 Ada**, прогретый `MODE=single`, `SPEC=dflash2`, контекст 32K, `--max-concurrency 1`, thinking выключен, выход 256 токенов. Снимайте со второго бута (`qwen-cache`).
+
+| Нагрузка | Output tok/s | Acceptance DFlash2 | Mean TTFT |
+|---|---|---|---|
+| random, 128 in / 256 out, 8 запросов | **69** | 30% (длина 3.12) | ~110 мс |
+| 8 осмысленных чат-запросов (стих, код, SQL, …) | **80** | 38% (длина 3.64) | ~125 мс |
+
+ITL шага GPU ~**43 мс** (~23 раунда/с). Throughput выше за счёт спекуляции: без DFlash2 было бы около этих 23 tok/s. На живом тексте acceptance выше, чем на random. С thinking и на длинном контексте цифры ниже.
+
+`--dataset-name random` с `--random-input-len 128 --random-output-len 256` даёт нижнюю оценку (acceptance хуже). Смотрите **Output token throughput** и блок **Speculative Decoding**. Peak output tok/s у бенча считается по ITL и при спекуляции часто *ниже* среднего — это не регресс.
+
+`REQ_METRICS=1` в `.env`, затем `docker compose up -d --force-recreate qwen`. В ответе API появятся тайминги; чат не изменится.
+
+Лог движка: `docker compose logs -f qwen` — периодические `Avg generation throughput`.
+
+---
+
 ## Операционные ловушки
 
 1. **Контекст 32K по умолчанию** — безопасный первый старт. `CTX=fast` / `long` / `huge` — после того, как 32K уже живёт. `huge` — lossy KV (KVarN).
@@ -248,6 +268,7 @@ docker compose up -d --force-recreate open-webui
 4. **WSL2:** `VLLM_WSL2_ENABLE_PIN_MEMORY=1` в `.env`, иначе V2 runner падает на UVA. На native Linux переменная безвредна.
 5. **Чат на LAN.** Порт 3000 открыт на `0.0.0.0`. Задайте `API_KEY`, после первого админа выключите `WEBUI_ENABLE_SIGNUP`. API на 8080 с LAN не торчит.
 6. **Конфигурация Open WebUI хранится в volume.** Если позже изменить endpoint через `.env`, сохранённая настройка может иметь приоритет; проверьте Admin Panel → Connections.
+7. **`vllm bench serve --model qwen3.8-27b` ходит на Hugging Face и падает 404.** Нужны `--model` / `--tokenizer` на `/app/models/Qwen3.8-27B-W4A16-AutoRound-fast` и `--served-model-name qwen3.8-27b`. Drafter `Qwen3.8-27B-DFlash2-W4A16` в `--tokenizer` не ставить.
 
 Проверка установки внутри контейнера: `docker compose run --rm qwen verify`.
 
