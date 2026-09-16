@@ -4,13 +4,13 @@
 
 Запуск: `check-env.sh` → `.env` → `docker compose up -d --build` → Open WebUI.
 
-Канонический запуск — **только Docker** на Linux-хосте с RTX 4500 Ada. Open WebUI даёт чат в браузере, а vLLM — OpenAI-совместимый API. С хоста: чат `http://127.0.0.1:3000`, API `http://127.0.0.1:8080`. Оба порта слушают только loopback; снаружи чат открывает Caddy.
+Канонический запуск — **только Docker** на Linux-хосте с RTX 4500 Ada. Open WebUI даёт чат в браузере, vLLM — OpenAI-совместимый API. Чат: `http://<IP-сервера>:3000` (по умолчанию на всех интерфейсах). API: `http://127.0.0.1:8080` (только loopback). Caddy не нужен для проверки в LAN.
 
 Машиночитаемые требования: [`stack-requirements.txt`](stack-requirements.txt). Что делает стек иначе, чем stock vLLM: [docs/optimizations.md](docs/optimizations.md). Подводные камни при отладке: [docs/gotchas.md](docs/gotchas.md).
 
 ```bash
 ./check-env.sh
-cp .env.example .env                # CTX, API_KEY, PORT, CADDY_NETWORK, …
+cp .env.example .env                # CTX, API_KEY, WEBUI_SECRET_KEY, …
 # В .env: WEBUI_SECRET_KEY=$(openssl rand -hex 32)
 docker compose up -d --build
 ```
@@ -35,7 +35,7 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 
 1. На **хосте с RTX 4500 Ada** (драйвер ≥ 575, Docker, NVIDIA Container Toolkit):
 
-   ```bash
+```bash
    ./check-env.sh
    ```
 
@@ -46,19 +46,19 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
    echo "WEBUI_SECRET_KEY=$(openssl rand -hex 32)" >> .env
    ```
 
-   Обязательно задайте `CADDY_NETWORK`. Рекомендуется также сгенерировать `API_KEY`.
+   Задайте `WEBUI_SECRET_KEY`. Рекомендуется также `API_KEY`. Caddy не нужен.
 
 3. Сборка и запуск на этом хосте:
 
-   ```bash
+```bash
    docker compose up -d --build
-   ```
+```
 
-4. Откройте чат: `http://127.0.0.1:3000`. Первый зарегистрированный пользователь становится администратором.
+4. Откройте чат: `http://192.168.1.35:3000` (IP сервера) или `http://127.0.0.1:3000` с самого хоста. Первый зарегистрированный пользователь становится администратором.
 
 5. Проверка API:
 
-   ```bash
+```bash
    curl http://127.0.0.1:8080/v1/chat/completions \
      -H "Content-Type: application/json" \
      -d '{
@@ -72,8 +72,6 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 Дефолты контейнера: `MODE=single`, `SPEC=dflash2`, `PREFIX_CACHE=1`, контекст **32768**, API-порт **8080**, UI-порт **3000**. Поднимайте `CTX` в `.env` только после успешного прогона на 32K.
 
 Веса **не кладутся в образ** — только volume. Хосту не нужны nvcc, GCC и нативный vLLM.
-
-Если образ уже есть локально и Caddy не нужен в этом запуске — `CADDY_NETWORK` в compose всё равно обязателен. Задайте сеть, даже если сайт ещё не описан в Caddyfile.
 
 ---
 
@@ -129,15 +127,15 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 | `PREFIX_CACHE` | Кэш общего префикса между запросами | `1` |
 | `MODEL_DIR` | Каталог весов на хосте → `/app/models` | `./models` |
 | `API_KEY` | Если задан — ключ vLLM | пусто (API открыт на loopback) |
-| `CADDY_NETWORK` | Имя Docker-сети Caddy | **обязательно** |
 | `WEBUI_SECRET_KEY` | Подпись сессий Open WebUI | **обязательно**, случайные 32 байта |
-| `WEBUI_PORT` | Loopback-порт чата | `3000` |
+| `WEBUI_PORT` | Порт чата на хосте | `3000` |
+| `WEBUI_BIND` | Адрес проброса UI | `0.0.0.0` (LAN). Loopback: `127.0.0.1` |
 | `WEBUI_NAME` | Название интерфейса | `Qwen3.8-27B` |
 | `WEBUI_ENABLE_SIGNUP` | Разрешить регистрацию | `True` для первого входа |
 | `HF_TOKEN` | Если Hugging Face режет анонимные скачивания | пусто |
 | `EXTRA_ARGS` | Доп. флаги `vllm serve` | пусто |
 
-`HOST` внутри контейнера всегда `0.0.0.0` (иначе проброс порта не работает). С хоста слушает только `127.0.0.1`.
+`HOST` внутри контейнера vLLM всегда `0.0.0.0`. С хоста API проброшен только на `127.0.0.1:8080`. Чат слушает `WEBUI_BIND` (по умолчанию все интерфейсы, порт 3000).
 
 Числовой `CTX` мапится в entrypoint: ≤65536 → профиль `fast`, ≤131072 → `long`, иначе `huge`, плюс `MAX_LEN` равный числу. Именованный `CTX=fast` без числа даёт окно launcher’а (64k).
 
@@ -214,50 +212,42 @@ print(response.choices[0].message.content)
 
 ## Open WebUI и Caddy
 
-Open WebUI хранит пользователей, настройки и историю в volume `open-webui-data`. Порт 3000 слушает только `127.0.0.1`; Caddy достигает UI по общей Docker-сети. API vLLM остаётся отдельно на loopback 8080.
+Open WebUI хранит пользователей и историю в volume `open-webui-data`. По умолчанию чат доступен с LAN: `http://<IP>:3000`. API vLLM — только `http://127.0.0.1:8080`.
 
-1. Узнать сеть Caddy:
+Чтобы слушать только loopback: `WEBUI_BIND=127.0.0.1` в `.env` и `docker compose up -d`.
 
-   ```bash
-   docker inspect <caddy-container> --format '{{range $k, $_ := .NetworkSettings.Networks}}{{println $k}}{{end}}'
-   ```
+Caddy не обязателен. Когда появится, подключите UI к его сети и проксируйте контейнер:
 
-2. В `.env`: `CADDY_NETWORK=<это-имя>`.
+```bash
+docker inspect <caddy-container> --format '{{range $k, $_ := .NetworkSettings.Networks}}{{println $k}}{{end}}'
+docker network connect <имя-сети> qwen38-open-webui
+```
 
-3. В Caddyfile — **отдельный сайт**. DNS A-запись на IP сервера, порты 80/443 как у остальных:
+```caddy
+qwen.4500.dev.econdata.ru {
+        encode gzip
+        reverse_proxy qwen38-open-webui:8080 {
+                flush_interval -1
+        }
+}
+```
 
-   ```caddy
-   qwen.4500.dev.econdata.ru {
-           encode gzip
-
-           reverse_proxy qwen38-open-webui:8080 {
-                   flush_interval -1
-           }
-   }
-   ```
-
-4. `docker compose up -d` (пересоздаст контейнер qwen в сети Caddy), затем перезагрузить Caddy.
-
-Чат: `https://qwen.4500.dev.econdata.ru`. Первый зарегистрированный пользователь получает роль администратора; после этого рекомендуется поставить `WEBUI_ENABLE_SIGNUP=False` и пересоздать UI:
+После первого входа поставьте `WEBUI_ENABLE_SIGNUP=False` и пересоздайте UI:
 
 ```bash
 docker compose up -d --force-recreate open-webui
 ```
 
-Сырой API не публикуется через этот домен и остаётся на `http://127.0.0.1:8080/v1`.
-
 ---
 
 ## Операционные ловушки
 
-1. **`CADDY_NETWORK` обязателен** — compose без него не стартует.
-2. **Контекст 32K по умолчанию** — безопасный первый старт. `CTX=fast` / `long` / `huge` — после того, как 32K уже живёт. `huge` — lossy KV (KVarN).
-3. **Не поднимать `MAX_SEQS` и `KV_MEM` наугад.** Лимит — пул recurrent state и 24 ГБ.
-4. **Первый boot медленный.** Цифры скорости снимайте со второго/третьего старта (прогретый `qwen-cache`).
-5. **WSL2:** `VLLM_WSL2_ENABLE_PIN_MEMORY=1` в `.env`, иначе V2 runner падает на UVA. На native Linux переменная безвредна.
-6. **Ключ.** Loopback без ключа допустим. Как только сайт в Caddy торчит наружу — задайте `API_KEY`.
-7. **Регистрация.** После создания администратора выключите `WEBUI_ENABLE_SIGNUP`, если публичная регистрация не нужна.
-8. **Конфигурация Open WebUI хранится в volume.** Если позже изменить endpoint через `.env`, сохранённая настройка может иметь приоритет; проверьте Admin Panel → Connections.
+1. **Контекст 32K по умолчанию** — безопасный первый старт. `CTX=fast` / `long` / `huge` — после того, как 32K уже живёт. `huge` — lossy KV (KVarN).
+2. **Не поднимать `MAX_SEQS` и `KV_MEM` наугад.** Лимит — пул recurrent state и 24 ГБ.
+3. **Первый boot медленный.** Цифры скорости снимайте со второго/третьего старта (прогретый `qwen-cache`).
+4. **WSL2:** `VLLM_WSL2_ENABLE_PIN_MEMORY=1` в `.env`, иначе V2 runner падает на UVA. На native Linux переменная безвредна.
+5. **Чат на LAN.** Порт 3000 открыт на `0.0.0.0`. Задайте `API_KEY`, после первого админа выключите `WEBUI_ENABLE_SIGNUP`. API на 8080 с LAN не торчит.
+6. **Конфигурация Open WebUI хранится в volume.** Если позже изменить endpoint через `.env`, сохранённая настройка может иметь приоритет; проверьте Admin Panel → Connections.
 
 Проверка установки внутри контейнера: `docker compose run --rm qwen verify`.
 

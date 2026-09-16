@@ -1,5 +1,15 @@
+# Qwen3.8-27B on RTX 4500 Ada.
+#
+#   ./check-env.sh
+#   cp .env.example .env
+#   docker compose up -d --build
+#
+# Chat: http://<host-ip>:3000  (WEBUI_BIND, default 0.0.0.0)
+# API:  http://127.0.0.1:8080  (loopback only)
+# Caddy is optional. To attach later:
+#   docker network connect <caddy-net> qwen38-open-webui
+
 x-qwen: &qwen
-  # Image is built on the Ada host. No CI, no registry push.
   image: qwen38-rtx4500-serve:latest
   build: .
   ipc: host
@@ -24,7 +34,6 @@ services:
     container_name: qwen38-rtx4500
     command: ${MODE:-single}
     ports:
-      # Loopback only. Outside access goes through Caddy on CADDY_NETWORK.
       - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
     gpus: all
     restart: unless-stopped
@@ -35,9 +44,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 900s
-    networks:
-      - default
-      - caddy
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.11.1
@@ -58,7 +64,7 @@ services:
       DO_NOT_TRACK: "True"
       SCARF_NO_ANALYTICS: "True"
     ports:
-      - "127.0.0.1:${WEBUI_PORT:-3000}:8080"
+      - "${WEBUI_BIND:-0.0.0.0}:${WEBUI_PORT:-3000}:8080"
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
@@ -68,14 +74,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
-    networks:
-      - default
-      - caddy
-
-networks:
-  caddy:
-    external: true
-    name: ${CADDY_NETWORK:?Set CADDY_NETWORK in .env to the Docker network Caddy is on}
 
 volumes:
   qwen-cache:

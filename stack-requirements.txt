@@ -32,10 +32,10 @@ container_name          = qwen38-rtx4500
 compose                 = docker-compose.yml
 dockerfile              = Dockerfile
 cuda_base_image         = nvidia/cuda:13.0.3-base-ubuntu24.04
-listen                  = 127.0.0.1:8080 (Caddy on CADDY_NETWORK for external access)
+listen                  = 127.0.0.1:8080 (vLLM API, loopback)
 chat_ui                 = ghcr.io/open-webui/open-webui:v0.11.1
 chat_container          = qwen38-open-webui
-chat_listen             = 127.0.0.1:3000; Caddy -> qwen38-open-webui:8080
+chat_listen             = 0.0.0.0:3000 (WEBUI_BIND; LAN chat). Caddy optional: docker network connect
 chat_data               = Docker volume open-webui-data
 
 [image_cuda]

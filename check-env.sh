@@ -131,19 +131,6 @@ else
 fi
 
 if [[ -f "${SCRIPT_DIR}/.env" ]]; then
-    if [[ -z "${CADDY_NETWORK:-}" ]]; then
-        echo "${FAIL} CADDY_NETWORK is empty. Set it in .env to Caddy's Docker network."
-        ERRORS=$((ERRORS + 1))
-    else
-        echo "${PASS} CADDY_NETWORK=${CADDY_NETWORK}"
-        if command -v docker >/dev/null 2>&1 && docker network inspect "${CADDY_NETWORK}" >/dev/null 2>&1; then
-            echo "${PASS} Docker network ${CADDY_NETWORK} exists."
-        else
-            echo "${WARN} Docker network '${CADDY_NETWORK}' not found yet. Create it or fix the name before compose up."
-            WARNINGS=$((WARNINGS + 1))
-        fi
-    fi
-
     if [[ -z "${WEBUI_SECRET_KEY:-}" ]]; then
         echo "${FAIL} WEBUI_SECRET_KEY is empty. Generate one: openssl rand -hex 32"
         ERRORS=$((ERRORS + 1))
@@ -155,13 +142,13 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
     fi
 
     if [[ -z "${API_KEY:-}" ]]; then
-        echo "${WARN} API_KEY is empty. vLLM has no authentication (loopback-only API is still protected from the network)."
+        echo "${WARN} API_KEY is empty. vLLM has no authentication; Open WebUI is on the LAN."
         WARNINGS=$((WARNINGS + 1))
     else
         echo "${PASS} API_KEY is configured for vLLM and Open WebUI."
     fi
 else
-    echo "${INFO} No .env yet. Copy .env.example and set CADDY_NETWORK, WEBUI_SECRET_KEY and API_KEY."
+    echo "${INFO} No .env yet. Copy .env.example and set WEBUI_SECRET_KEY (required) and API_KEY."
 fi
 
 MODEL_DIR_RAW="${MODEL_DIR:-${MODELS_DIR:-./models}}"
