@@ -702,8 +702,13 @@ fi
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-$ALLOC_DEFAULT}
 export VLLM_USE_FLASHINFER_SAMPLER=0
 
-if [ -z "$VLLM_API_KEY" ] && [ -f "$REPO/api_key.txt" ]; then
-  export VLLM_API_KEY="$(cat "$REPO/api_key.txt")"
+if [ -z "${API_KEY:-}" ] && [ -f "$REPO/api_key.txt" ]; then
+  export API_KEY="$(cat "$REPO/api_key.txt")"
+fi
+if [ -n "${API_KEY:-}" ]; then
+  export VLLM_API_KEY="$API_KEY"
+else
+  unset VLLM_API_KEY
 fi
 
 exec venv/bin/vllm serve "$MODEL" \

@@ -166,10 +166,10 @@ elif [ -f "$HERE/models/Qwen3.8-27B-DFlash2/config.json" ]; then warn "only the 
 else warn "no DFlash2 drafter (venv/bin/python prepare/fetch_dflash2.py; SPEC=dflash2 single-user mode needs it)"; fi
 
 echo "== keys / units"
-# A key is optional: with neither api_key.txt nor VLLM_API_KEY the launchers export
+# A key is optional: with neither api_key.txt nor API_KEY the launchers export
 # nothing and vLLM serves unauthenticated, which is a fine way to run this locally.
 # Worth a WARN rather than silence only because both launchers bind 0.0.0.0.
-[ -s api_key.txt ] || [ -n "${VLLM_API_KEY:-}" ] && ok "API key configured (api_key.txt or VLLM_API_KEY)" \
+[ -s api_key.txt ] || [ -n "${API_KEY:-}" ] && ok "API key configured (API_KEY or api_key.txt)" \
   || warn "no API key — the server will accept any request, and it listens on 0.0.0.0. Fine behind a firewall; otherwise: openssl rand -hex 24 > api_key.txt"
 if [ -f /.dockerenv ]; then :; elif systemctl --user is-active qwen-serving >/dev/null 2>&1; then ok "systemd user unit qwen-serving active"; else warn "qwen-serving unit not active (fine if you launch the scripts by hand)"; fi
 fi  # INSTALL
@@ -179,7 +179,7 @@ if [ $NOSRV = 0 ]; then
   PORT=${PORT:-18020}
   if curl -sf -o /dev/null http://127.0.0.1:$PORT/health; then
     ok "/health 200"
-    KEY=${VLLM_API_KEY:-$(cat api_key.txt 2>/dev/null)}
+    KEY=${API_KEY:-$(cat api_key.txt 2>/dev/null)}
     R=$(curl -s http://127.0.0.1:$PORT/v1/chat/completions -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
         -d '{"model":"qwen3.8-27b","messages":[{"role":"user","content":"Hvad er hovedstaden i Danmark? Svar med ét ord."}],"max_tokens":8,"temperature":0,"chat_template_kwargs":{"enable_thinking":false}}')
     echo "$R" | grep -qi "københavn\|copenhagen" && ok "chat completion answers ('$(echo "$R" | $PY -c 'import json,sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"].strip())' 2>/dev/null)')" || fail "chat completion wrong/failed: $(echo "$R" | head -c 200)"

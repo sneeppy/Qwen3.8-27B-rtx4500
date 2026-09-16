@@ -126,7 +126,7 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 | `SPEC` | Drafter: `dflash2` / `mtp` / `off` | `dflash2` |
 | `PREFIX_CACHE` | Кэш общего префикса между запросами | `1` |
 | `MODEL_DIR` | Каталог весов на хосте → `/app/models` | `./models` |
-| `API_KEY` | Если задан — ключ vLLM | пусто (API открыт на loopback) |
+| `API_KEY` | Ключ vLLM и Open WebUI | пусто (API открыт на loopback) |
 | `WEBUI_SECRET_KEY` | Подпись сессий Open WebUI | **обязательно**, случайные 32 байта |
 | `WEBUI_PORT` | Порт чата на хосте | `3000` |
 | `WEBUI_BIND` | Адрес проброса UI | `0.0.0.0` (LAN). Loopback: `127.0.0.1` |

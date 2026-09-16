@@ -73,7 +73,7 @@ batch_mode              = MODE=batch (no speculation, high concurrency)
 default_context         = 32768 (raise after a successful 32K run; named CTX=fast/long/huge also work)
 max_context             = 65536 fast / ~131072 long / ~245760 huge (KVarN, lossy KV)
 default_port            = 8080
-api_key_env             = API_KEY (aliased to VLLM_API_KEY)
+api_key_env             = API_KEY
 webui_secret_env        = WEBUI_SECRET_KEY (required, persistent)
 webui_backend           = http://qwen:8080/v1
 prompt_caching          = PREFIX_CACHE=1

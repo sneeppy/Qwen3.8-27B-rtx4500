@@ -14,9 +14,11 @@
 set -e
 cd /app
 
-# API_KEY is the compose name; vLLM launchers read VLLM_API_KEY.
-if [ -n "${API_KEY:-}" ] && [ -z "${VLLM_API_KEY:-}" ]; then
+# Ops knob is API_KEY. vLLM's process still reads VLLM_API_KEY internally.
+if [ -n "${API_KEY:-}" ]; then
   export VLLM_API_KEY="$API_KEY"
+else
+  unset VLLM_API_KEY
 fi
 
 # Numeric CTX (token window) -> MAX_LEN + a named profile.
@@ -50,7 +52,7 @@ case "$cmd" in
     echo " CTX profile:     ${CTX:-fast}"
     echo " max-model-len:   ${MAX_LEN:-"(launcher default)"}"
     echo " Prefix cache:    ${PREFIX_CACHE:-0}"
-    echo " API key:         $([ -n "${VLLM_API_KEY:-}" ] && echo set || echo unset)"
+    echo " API key:         $([ -n "${API_KEY:-}" ] && echo set || echo unset)"
     echo " Endpoint:        http://0.0.0.0:${PORT:-8080}"
     echo "=============================================================================="
     if [ "$cmd" = single ]; then exec bash single-user/start_qwen.sh "$@"; else exec bash batch/start_qwen.sh "$@"; fi ;;
