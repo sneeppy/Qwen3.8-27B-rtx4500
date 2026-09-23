@@ -4,5 +4,7 @@ models/
 qwen.log
 venv/
 .env
+.env.qwen
+.env.ui
 *.local.env
 *.gguf

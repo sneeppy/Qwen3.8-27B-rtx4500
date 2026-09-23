@@ -12,13 +12,15 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ -f "${SCRIPT_DIR}/.env" ]]; then
-    # shellcheck disable=SC1090
-    set -a
-    # shellcheck source=/dev/null
-    source "${SCRIPT_DIR}/.env"
-    set +a
-fi
+set -a
+for envf in .env.qwen .env.ui; do
+    if [[ -f "${SCRIPT_DIR}/${envf}" ]]; then
+        # shellcheck disable=SC1090
+        # shellcheck source=/dev/null
+        source "${SCRIPT_DIR}/${envf}"
+    fi
+done
+set +a
 
 PASS="[  OK  ]"
 WARN="[ WARN ]"
@@ -130,7 +132,37 @@ else
     ERRORS=$((ERRORS + 1))
 fi
 
-if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+if [[ ! -f "${SCRIPT_DIR}/.env.qwen" ]]; then
+    echo "${FAIL} No .env.qwen. Copy .env.qwen.example and set API_KEY."
+    ERRORS=$((ERRORS + 1))
+fi
+if [[ ! -f "${SCRIPT_DIR}/.env.ui" ]]; then
+    echo "${FAIL} No .env.ui. Copy .env.ui.example and set WEBUI_SECRET_KEY (openssl rand -hex 32)."
+    ERRORS=$((ERRORS + 1))
+fi
+
+if [[ -f "${SCRIPT_DIR}/.env.qwen" ]]; then
+    if [[ -z "${API_KEY:-}" ]]; then
+        echo "${WARN} API_KEY is empty. vLLM has no authentication on loopback."
+        WARNINGS=$((WARNINGS + 1))
+    else
+        echo "${PASS} API_KEY is configured for vLLM."
+    fi
+    missing=()
+    for var in PORT MODE MODEL_DIR; do
+        if [[ -z "${!var:-}" ]]; then
+            missing+=("$var")
+        fi
+    done
+    if (( ${#missing[@]} > 0 )); then
+        echo "${FAIL} .env.qwen must set: ${missing[*]} (compose has no defaults)."
+        ERRORS=$((ERRORS + 1))
+    else
+        echo "${PASS} .env.qwen interpolation variables are set."
+    fi
+fi
+
+if [[ -f "${SCRIPT_DIR}/.env.ui" ]]; then
     if [[ -z "${WEBUI_SECRET_KEY:-}" ]]; then
         echo "${FAIL} WEBUI_SECRET_KEY is empty. Generate one: openssl rand -hex 32"
         ERRORS=$((ERRORS + 1))
@@ -140,30 +172,42 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
     else
         echo "${PASS} WEBUI_SECRET_KEY is configured."
     fi
-
-    if [[ -z "${API_KEY:-}" ]]; then
-        echo "${WARN} API_KEY is empty. vLLM has no authentication; Open WebUI is on the LAN."
-        WARNINGS=$((WARNINGS + 1))
+    missing=()
+    for var in WEBUI_PORT WEBUI_NAME ENABLE_SIGNUP OPENAI_API_BASE_URLS; do
+        if [[ -z "${!var:-}" ]]; then
+            missing+=("$var")
+        fi
+    done
+    if (( ${#missing[@]} > 0 )); then
+        echo "${FAIL} .env.ui must set: ${missing[*]} (compose has no defaults)."
+        ERRORS=$((ERRORS + 1))
     else
-        echo "${PASS} API_KEY is configured for vLLM and Open WebUI."
+        echo "${PASS} .env.ui interpolation variables are set."
     fi
-else
-    echo "${INFO} No .env yet. Copy .env.example and set WEBUI_SECRET_KEY (required) and API_KEY."
+    if [[ -n "${API_KEY:-}" && -n "${OPENAI_API_KEYS:-}" && "${API_KEY}" != "${OPENAI_API_KEYS}" ]]; then
+        echo "${WARN} API_KEY and OPENAI_API_KEYS differ; Open WebUI will not match vLLM."
+        WARNINGS=$((WARNINGS + 1))
+    elif [[ -n "${API_KEY:-}" && -z "${OPENAI_API_KEYS:-}" ]]; then
+        echo "${WARN} OPENAI_API_KEYS is empty; copy API_KEY from .env.qwen into .env.ui."
+        WARNINGS=$((WARNINGS + 1))
+    fi
 fi
 
-MODEL_DIR_RAW="${MODEL_DIR:-${MODELS_DIR:-./models}}"
-if [[ "${MODEL_DIR_RAW}" = /* ]]; then
-    MODEL_DIR_HOST="${MODEL_DIR_RAW}"
+MODEL_DIR_RAW="${MODEL_DIR:-}"
+if [[ -z "${MODEL_DIR_RAW}" ]]; then
+    echo "${INFO} MODEL_DIR unset; compose will not start until .env.qwen defines it."
 else
-    MODEL_DIR_HOST="${SCRIPT_DIR}/${MODEL_DIR_RAW}"
-fi
-
-echo "${INFO} MODEL_DIR=${MODEL_DIR_RAW} -> ${MODEL_DIR_HOST}"
-
-if [[ -d "${MODEL_DIR_HOST}/Qwen3.8-27B-W4A16-AutoRound" || -d "${MODEL_DIR_HOST}/Qwen3.8-27B-W4A16-AutoRound-fast" ]]; then
-    echo "${PASS} Prepared model directory found under MODEL_DIR."
-else
-    echo "${INFO} Weights not in MODEL_DIR; the container will download and requantize on first start (~20 GB)."
+    if [[ "${MODEL_DIR_RAW}" = /* ]]; then
+        MODEL_DIR_HOST="${MODEL_DIR_RAW}"
+    else
+        MODEL_DIR_HOST="${SCRIPT_DIR}/${MODEL_DIR_RAW}"
+    fi
+    echo "${INFO} MODEL_DIR=${MODEL_DIR_RAW} -> ${MODEL_DIR_HOST}"
+    if [[ -d "${MODEL_DIR_HOST}/Qwen3.8-27B-W4A16-AutoRound" || -d "${MODEL_DIR_HOST}/Qwen3.8-27B-W4A16-AutoRound-fast" ]]; then
+        echo "${PASS} Prepared model directory found under MODEL_DIR."
+    else
+        echo "${INFO} Weights not in MODEL_DIR; the container will download and requantize on first start (~20 GB)."
+    fi
 fi
 echo ""
 

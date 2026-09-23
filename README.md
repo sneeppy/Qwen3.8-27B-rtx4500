@@ -2,16 +2,17 @@
 
 Стек инференса **Qwen3.8-27B** на GPU архитектуры **Ada Lovelace (sm_89)**: RTX 4500 Ada Generation 24 ГБ. Внутри образа — **vLLM 0.28.0** с патчами из этого репозитория.
 
-Запуск: `check-env.sh` → `.env` → `docker compose up -d --build` → Open WebUI.
+Запуск: `check-env.sh` → `.env.qwen` + `.env.ui` → `docker compose up -d --build` → Open WebUI.
 
-Канонический запуск — **только Docker** на Linux-хосте с RTX 4500 Ada. Open WebUI даёт чат в браузере, vLLM — OpenAI-совместимый API. Чат: `http://<IP-сервера>:3000` (по умолчанию на всех интерфейсах). API: `http://127.0.0.1:8080` (только loopback). Caddy не нужен для проверки в LAN.
+Канонический запуск — **только Docker** на Linux-хосте с RTX 4500 Ada. Open WebUI даёт чат в браузере, vLLM — OpenAI-совместимый API. С хоста: чат `http://127.0.0.1:3000`, API `http://127.0.0.1:8080`. Оба порта только loopback; снаружи — reverse proxy на хосте (nginx).
 
 Машиночитаемые требования: [`stack-requirements.txt`](stack-requirements.txt). Что делает стек иначе, чем stock vLLM: [docs/optimizations.md](docs/optimizations.md). Подводные камни при отладке: [docs/gotchas.md](docs/gotchas.md).
 
 ```bash
 ./check-env.sh
-cp .env.example .env                # CTX, API_KEY, WEBUI_SECRET_KEY, …
-# В .env: WEBUI_SECRET_KEY=$(openssl rand -hex 32)
+cp .env.qwen.example .env.qwen
+cp .env.ui.example .env.ui
+# В .env.ui: WEBUI_SECRET_KEY=$(openssl rand -hex 32)
 docker compose up -d --build
 ```
 
@@ -42,11 +43,12 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 2. Конфиг:
 
    ```bash
-   cp .env.example .env
-   echo "WEBUI_SECRET_KEY=$(openssl rand -hex 32)" >> .env
+   cp .env.qwen.example .env.qwen
+   cp .env.ui.example .env.ui
+   echo "WEBUI_SECRET_KEY=$(openssl rand -hex 32)" >> .env.ui
    ```
 
-   Задайте `WEBUI_SECRET_KEY`. Рекомендуется также `API_KEY`. Caddy не нужен.
+   Задайте `WEBUI_SECRET_KEY` в `.env.ui`. Рекомендуется `API_KEY` в `.env.qwen` и тот же ключ в `OPENAI_API_KEYS` в `.env.ui`. Снаружи доступ даёт nginx на хосте, не порты compose.
 
 3. Сборка и запуск на этом хосте:
 
@@ -69,7 +71,7 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
      }'
    ```
 
-Дефолты контейнера: `MODE=single`, `SPEC=dflash2`, `PREFIX_CACHE=1`, контекст **32768**, API-порт **8080**, UI-порт **3000**. Поднимайте `CTX` в `.env` только после успешного прогона на 32K.
+Канонические значения — в `.env.qwen.example` / `.env.ui.example`: `MODE=single`, `SPEC=dflash2`, `PREFIX_CACHE=1`, контекст **32768**, API-порт **8080**, UI-порт **3000**. Поднимайте `CTX` в `.env.qwen` только после успешного прогона на 32K.
 
 Веса **не кладутся в образ** — только volume. Хосту не нужны nvcc, GCC и нативный vLLM.
 
@@ -84,7 +86,7 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 
 Для `SPEC=dflash2` контейнер также качает drafter `Qwen3.8-27B-DFlash2-W4A16`.
 
-Контейнер готовит веса сам, если их нет в `MODEL_DIR` (по умолчанию `./models`). Можно положить уже подготовленный каталог туда заранее.
+Контейнер готовит веса сам, если их нет в `MODEL_DIR` (в `.env.qwen.example` — `./models`). Можно положить уже подготовленный каталог туда заранее.
 
 Только скачать и requant, без сервера:
 
@@ -114,29 +116,32 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 
 ---
 
-## Конфигурация (`.env`)
+## Конфигурация (`.env.qwen` и `.env.ui`)
 
-Шаблон: `.env.example`. Файл `.env` рядом с `docker-compose.yml`. Секреты в git не коммитить.
+Шаблоны: `.env.qwen.example` (vLLM) и `.env.ui.example` (Open WebUI). Секреты в git не коммитить. Compose читает оба файла для подстановки в YAML (нужен Docker Compose **2.24+**). В контейнер `qwen` уходит только `.env.qwen`, в UI — только `.env.ui`.
 
-| Переменная | Смысл | По умолчанию |
-|---|---|---|
-| `PORT` | Порт на хосте и в контейнере | `8080` |
-| `CTX` | Окно контекста | `32768` (число токенов). Пресеты: `fast` / `long` / `huge` |
-| `MODE` | `single` — чат/агент; `batch` — много запросов | `single` |
-| `SPEC` | Drafter: `dflash2` / `mtp` / `off` | `dflash2` |
-| `PREFIX_CACHE` | Кэш общего префикса между запросами | `1` |
-| `MODEL_DIR` | Каталог весов на хосте → `/app/models` | `./models` |
-| `API_KEY` | Ключ vLLM и Open WebUI | пусто (API открыт на loopback) |
-| `WEBUI_SECRET_KEY` | Подпись сессий Open WebUI | **обязательно**, случайные 32 байта |
-| `WEBUI_PORT` | Порт чата на хосте | `3000` |
-| `WEBUI_BIND` | Адрес проброса UI | `0.0.0.0` (LAN). Loopback: `127.0.0.1` |
-| `WEBUI_NAME` | Название интерфейса | `Qwen3.8-27B` |
-| `WEBUI_ENABLE_SIGNUP` | Разрешить регистрацию | `True` для первого входа |
-| `HF_TOKEN` | Если Hugging Face режет анонимные скачивания | пусто |
-| `REQ_METRICS` | Тайминги и `usage` в каждом JSON ответа vLLM | `0`. `1` — для замера с сервера, UI не меняет |
-| `EXTRA_ARGS` | Доп. флаги `vllm serve` | пусто |
+| Переменная | Файл | Смысл | В example |
+|---|---|---|---|
+| `PORT` | `.env.qwen` | Порт API на хосте и в контейнере | `8080` |
+| `CTX` | `.env.qwen` | Окно контекста | `32768`. Пресеты: `fast` / `long` / `huge` |
+| `MODE` | `.env.qwen` | `single` — чат/агент; `batch` — много запросов | `single` |
+| `SPEC` | `.env.qwen` | Drafter: `dflash2` / `mtp` / `off` | `dflash2` |
+| `PREFIX_CACHE` | `.env.qwen` | Кэш общего префикса между запросами | `1` |
+| `MODEL_DIR` | `.env.qwen` | Каталог весов на хосте → `/app/models` | `./models` |
+| `API_KEY` | `.env.qwen` | Ключ vLLM | пусто (API открыт на loopback) |
+| `HF_TOKEN` | `.env.qwen` | Если Hugging Face режет анонимные скачивания | пусто |
+| `REQ_METRICS` | `.env.qwen` | Тайминги и `usage` в JSON ответа vLLM | `0` |
+| `EXTRA_ARGS` | `.env.qwen` | Доп. флаги `vllm serve` | пусто |
+| `WEBUI_PORT` | `.env.ui` | Порт чата на хосте (loopback) | `3000` |
+| `WEBUI_SECRET_KEY` | `.env.ui` | Подпись сессий Open WebUI | **обязательно**, случайные 32 байта |
+| `WEBUI_NAME` | `.env.ui` | Название интерфейса | `Qwen3.8-27B` |
+| `ENABLE_SIGNUP` | `.env.ui` | Разрешить регистрацию | `True` для первого входа |
+| `OPENAI_API_BASE_URLS` | `.env.ui` | Backend vLLM внутри Docker | `http://qwen:8080/v1` |
+| `OPENAI_API_KEYS` | `.env.ui` | Тот же секрет, что `API_KEY` | пусто |
 
-`HOST` внутри контейнера vLLM всегда `0.0.0.0`. С хоста API проброшен только на `127.0.0.1:8080`. Чат слушает `WEBUI_BIND` (по умолчанию все интерфейсы, порт 3000).
+Если меняете `PORT` в `.env.qwen`, поправьте порт в `OPENAI_API_BASE_URLS` — `env_file` строку не подставляет.
+
+`HOST` внутри контейнера vLLM всегда `0.0.0.0` (образ). С хоста API и чат проброшены только на `127.0.0.1` (`PORT` и `WEBUI_PORT`).
 
 Числовой `CTX` мапится в entrypoint: ≤65536 → профиль `fast`, ≤131072 → `long`, иначе `huge`, плюс `MAX_LEN` равный числу. Именованный `CTX=fast` без числа даёт окно launcher’а (64k).
 
@@ -159,7 +164,7 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 
 **`MODE=single`.** DFlash2 предлагает блок токенов, target проверяет. Для одного оператора за картой.
 
-**`MODE=batch`.** Без спекуляции, высокая совокупная пропускная способность. На одной GPU не поднимать оба режима сразу: в `.env` смените `MODE` и `docker compose up -d --force-recreate`.
+**`MODE=batch`.** Без спекуляции, высокая совокупная пропускная способность. На одной GPU не поднимать оба режима сразу: в `.env.qwen` смените `MODE` и `docker compose up -d --force-recreate`.
 
 Имя модели в API всегда `qwen3.8-27b`.
 
@@ -211,29 +216,11 @@ print(response.choices[0].message.content)
 
 ---
 
-## Open WebUI и Caddy
+## Open WebUI и nginx
 
-Open WebUI хранит пользователей и историю в volume `open-webui-data`. По умолчанию чат доступен с LAN: `http://<IP>:3000`. API vLLM — только `http://127.0.0.1:8080`.
+Open WebUI хранит пользователей и историю в volume `open-webui-data`. Порт 3000 слушает только `127.0.0.1`; снаружи чат открывает nginx на хосте (`proxy_pass http://127.0.0.1:3000`). API vLLM — `http://127.0.0.1:8080`; его тоже можно проксировать (`/v1/` → `http://127.0.0.1:8080/v1/`).
 
-Чтобы слушать только loopback: `WEBUI_BIND=127.0.0.1` в `.env` и `docker compose up -d`.
-
-Caddy не обязателен. Когда появится, подключите UI к его сети и проксируйте контейнер:
-
-```bash
-docker inspect <caddy-container> --format '{{range $k, $_ := .NetworkSettings.Networks}}{{println $k}}{{end}}'
-docker network connect <имя-сети> qwen38-open-webui
-```
-
-```caddy
-qwen.4500.dev.econdata.ru {
-        encode gzip
-        reverse_proxy qwen38-open-webui:8080 {
-                flush_interval -1
-  }
-}
-```
-
-После первого входа поставьте `WEBUI_ENABLE_SIGNUP=False` и пересоздайте UI:
+После первого входа поставьте `ENABLE_SIGNUP=False` в `.env.ui` и пересоздайте UI:
 
 ```bash
 docker compose up -d --force-recreate open-webui
@@ -254,7 +241,7 @@ ITL шага GPU ~**43 мс** (~23 раунда/с). Throughput выше за с
 
 `--dataset-name random` с `--random-input-len 128 --random-output-len 256` даёт нижнюю оценку (acceptance хуже). Смотрите **Output token throughput** и блок **Speculative Decoding**. Peak output tok/s у бенча считается по ITL и при спекуляции часто *ниже* среднего — это не регресс.
 
-`REQ_METRICS=1` в `.env`, затем `docker compose up -d --force-recreate qwen`. В ответе API появятся тайминги; чат не изменится.
+`REQ_METRICS=1` в `.env.qwen`, затем `docker compose up -d --force-recreate qwen`. В ответе API появятся тайминги; чат не изменится.
 
 Лог движка: `docker compose logs -f qwen` — периодические `Avg generation throughput`.
 
@@ -265,9 +252,9 @@ ITL шага GPU ~**43 мс** (~23 раунда/с). Throughput выше за с
 1. **Контекст 32K по умолчанию** — безопасный первый старт. `CTX=fast` / `long` / `huge` — после того, как 32K уже живёт. `huge` — lossy KV (KVarN).
 2. **Не поднимать `MAX_SEQS` и `KV_MEM` наугад.** Лимит — пул recurrent state и 24 ГБ.
 3. **Первый boot медленный.** Цифры скорости снимайте со второго/третьего старта (прогретый `qwen-cache`).
-4. **WSL2:** `VLLM_WSL2_ENABLE_PIN_MEMORY=1` в `.env`, иначе V2 runner падает на UVA. На native Linux переменная безвредна.
-5. **Чат на LAN.** Порт 3000 открыт на `0.0.0.0`. Задайте `API_KEY`, после первого админа выключите `WEBUI_ENABLE_SIGNUP`. API на 8080 с LAN не торчит.
-6. **Конфигурация Open WebUI хранится в volume.** Если позже изменить endpoint через `.env`, сохранённая настройка может иметь приоритет; проверьте Admin Panel → Connections.
+4. **WSL2:** `VLLM_WSL2_ENABLE_PIN_MEMORY=1` в `.env.qwen`, иначе V2 runner падает на UVA. На native Linux переменная безвредна.
+5. **Ключ.** Loopback без ключа допустим. Как только API торчит через nginx — задайте `API_KEY` и тот же `OPENAI_API_KEYS`. После первого админа выключите `ENABLE_SIGNUP`.
+6. **Конфигурация Open WebUI хранится в volume.** Если позже изменить endpoint в `.env.ui`, сохранённая настройка может иметь приоритет; проверьте Admin Panel → Connections.
 7. **`vllm bench serve --model qwen3.8-27b` ходит на Hugging Face и падает 404.** Нужны `--model` / `--tokenizer` на `/app/models/Qwen3.8-27B-W4A16-AutoRound-fast` и `--served-model-name qwen3.8-27b`. Drafter `Qwen3.8-27B-DFlash2-W4A16` в `--tokenizer` не ставить.
 
 Проверка установки внутри контейнера: `docker compose run --rm qwen verify`.

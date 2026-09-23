@@ -3,6 +3,8 @@ venv
 hfvenv
 models
 .env
+.env.qwen
+.env.ui
 api_key.txt
 *.log
 __pycache__

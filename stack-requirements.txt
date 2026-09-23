@@ -28,14 +28,14 @@ lock_clocks             = not used (Ada boosts under its own 210 W TGP)
 
 [docker]
 image                   = qwen38-rtx4500-serve:latest (built on the host; no CI registry)
-container_name          = qwen38-rtx4500
+service                 = qwen
 compose                 = docker-compose.yml
 dockerfile              = Dockerfile
 cuda_base_image         = nvidia/cuda:13.0.3-base-ubuntu24.04
 listen                  = 127.0.0.1:8080 (vLLM API, loopback)
 chat_ui                 = ghcr.io/open-webui/open-webui:v0.11.1
-chat_container          = qwen38-open-webui
-chat_listen             = 0.0.0.0:3000 (WEBUI_BIND; LAN chat). Caddy optional: docker network connect
+chat_service            = open-webui
+chat_listen             = 127.0.0.1:3000 (loopback; reverse-proxy on the host)
 chat_data               = Docker volume open-webui-data
 
 [image_cuda]
@@ -74,7 +74,8 @@ default_context         = 32768 (raise after a successful 32K run; named CTX=fas
 max_context             = 65536 fast / ~131072 long / ~245760 huge (KVarN, lossy KV)
 default_port            = 8080
 api_key_env             = API_KEY
-webui_secret_env        = WEBUI_SECRET_KEY (required, persistent)
-webui_backend           = http://qwen:8080/v1
+webui_secret_env        = WEBUI_SECRET_KEY in .env.ui (required, persistent)
+webui_backend           = OPENAI_API_BASE_URLS in .env.ui (http://qwen:8080/v1)
+env_files               = .env.qwen (vLLM) + .env.ui (Open WebUI)
 prompt_caching          = PREFIX_CACHE=1
 parallel_slots          = launcher MAX_SEQS (8 single / 64 batch); residency is GDN-state limited
