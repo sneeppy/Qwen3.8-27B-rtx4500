@@ -2,7 +2,7 @@
 
 Стек инференса **Qwen3.8-27B** на GPU архитектуры **Ada Lovelace (sm_89)**: RTX 4500 Ada Generation 24 ГБ. Внутри образа — **vLLM 0.28.0** с патчами из этого репозитория.
 
-Запуск: `check-env.sh` → `.env.qwen` + `.env.ui` → `docker compose up -d --build` → Open WebUI.
+Запуск: `check-env.sh` → `.env.qwen` + `.env.ui` → `docker compose --env-file .env.qwen --env-file .env.ui build` → `up -d` → Open WebUI.
 
 Канонический запуск — **только Docker** на Linux-хосте с RTX 4500 Ada. Open WebUI даёт чат в браузере, vLLM — OpenAI-совместимый API. С хоста: чат `http://127.0.0.1:3000`, API `http://127.0.0.1:8080`. Оба порта только loopback; снаружи — reverse proxy на хосте (nginx).
 
@@ -13,12 +13,13 @@
 cp .env.qwen.example .env.qwen
 cp .env.ui.example .env.ui
 # В .env.ui: WEBUI_SECRET_KEY=$(openssl rand -hex 32)
-docker compose up -d --build
+docker compose --env-file .env.qwen --env-file .env.ui build
+docker compose --env-file .env.qwen --env-file .env.ui up -d
 ```
 
 | Этап | Что происходит |
 |---|---|
-| `docker compose up -d --build` | Сборка vLLM-образа на сервере и загрузка закреплённого образа Open WebUI. |
+| `docker compose --env-file .env.qwen --env-file .env.ui build` затем `up -d` | Сборка vLLM-образа на сервере и загрузка закреплённого образа Open WebUI. |
 | Первый старт контейнера | Скачивание и requant модели (~20 ГБ) в `./models`, затем torch.compile / CUDA graphs. Healthcheck ждёт до 15 минут. |
 | Повторный старт | Веса, compile-кэш и база Open WebUI остаются в Docker volumes. |
 
@@ -53,10 +54,11 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 3. Сборка и запуск на этом хосте:
 
 ```bash
-   docker compose up -d --build
+   docker compose --env-file .env.qwen --env-file .env.ui build
+   docker compose --env-file .env.qwen --env-file .env.ui up -d
 ```
 
-4. Откройте чат: `http://192.168.1.35:3000` (IP сервера) или `http://127.0.0.1:3000` с самого хоста. Первый зарегистрированный пользователь становится администратором.
+4. Откройте чат: `http://127.0.0.1:3000` с хоста или через nginx. Первый зарегистрированный пользователь становится администратором.
 
 5. Проверка API:
 
@@ -91,7 +93,7 @@ docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 Только скачать и requant, без сервера:
 
 ```bash
-docker compose run --rm qwen prepare
+docker compose --env-file .env.qwen --env-file .env.ui run --rm qwen prepare
 ```
 
 ---
@@ -118,7 +120,16 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 
 ## Конфигурация (`.env.qwen` и `.env.ui`)
 
-Шаблоны: `.env.qwen.example` (vLLM) и `.env.ui.example` (Open WebUI). Секреты в git не коммитить. Compose читает оба файла для подстановки в YAML (нужен Docker Compose **2.24+**). В контейнер `qwen` уходит только `.env.qwen`, в UI — только `.env.ui`.
+Шаблоны: `.env.qwen.example` (vLLM) и `.env.ui.example` (Open WebUI). Секреты в git не коммитить.
+
+Подстановка `${PORT}` / `${MODE}` / `${MODEL_DIR}` / `${WEBUI_PORT}` в YAML **не** берётся из `env_file:` у сервиса. Нужен флаг CLI (Compose читает только файл с именем `.env`, если флаги не заданы):
+
+```bash
+docker compose --env-file .env.qwen --env-file .env.ui build
+docker compose --env-file .env.qwen --env-file .env.ui up -d
+```
+
+В контейнер `qwen` уходит только `.env.qwen`, в UI — только `.env.ui`.
 
 | Переменная | Файл | Смысл | В example |
 |---|---|---|---|
@@ -164,7 +175,7 @@ TGP карты ~210 W; частоты GPU трогать не нужно.
 
 **`MODE=single`.** DFlash2 предлагает блок токенов, target проверяет. Для одного оператора за картой.
 
-**`MODE=batch`.** Без спекуляции, высокая совокупная пропускная способность. На одной GPU не поднимать оба режима сразу: в `.env.qwen` смените `MODE` и `docker compose up -d --force-recreate`.
+**`MODE=batch`.** Без спекуляции, высокая совокупная пропускная способность. На одной GPU не поднимать оба режима сразу: в `.env.qwen` смените `MODE` и `docker compose --env-file .env.qwen --env-file .env.ui up -d --force-recreate`.
 
 Имя модели в API всегда `qwen3.8-27b`.
 
@@ -223,7 +234,7 @@ Open WebUI хранит пользователей и историю в volume `
 После первого входа поставьте `ENABLE_SIGNUP=False` в `.env.ui` и пересоздайте UI:
 
 ```bash
-docker compose up -d --force-recreate open-webui
+docker compose --env-file .env.qwen --env-file .env.ui up -d --force-recreate open-webui
 ```
 
 ---
@@ -241,7 +252,7 @@ ITL шага GPU ~**43 мс** (~23 раунда/с). Throughput выше за с
 
 `--dataset-name random` с `--random-input-len 128 --random-output-len 256` даёт нижнюю оценку (acceptance хуже). Смотрите **Output token throughput** и блок **Speculative Decoding**. Peak output tok/s у бенча считается по ITL и при спекуляции часто *ниже* среднего — это не регресс.
 
-`REQ_METRICS=1` в `.env.qwen`, затем `docker compose up -d --force-recreate qwen`. В ответе API появятся тайминги; чат не изменится.
+`REQ_METRICS=1` в `.env.qwen`, затем `docker compose --env-file .env.qwen --env-file .env.ui up -d --force-recreate qwen`. В ответе API появятся тайминги; чат не изменится.
 
 Лог движка: `docker compose logs -f qwen` — периодические `Avg generation throughput`.
 
@@ -257,7 +268,7 @@ ITL шага GPU ~**43 мс** (~23 раунда/с). Throughput выше за с
 6. **Конфигурация Open WebUI хранится в volume.** Если позже изменить endpoint в `.env.ui`, сохранённая настройка может иметь приоритет; проверьте Admin Panel → Connections.
 7. **`vllm bench serve --model qwen3.8-27b` ходит на Hugging Face и падает 404.** Нужны `--model` / `--tokenizer` на `/app/models/Qwen3.8-27B-W4A16-AutoRound-fast` и `--served-model-name qwen3.8-27b`. Drafter `Qwen3.8-27B-DFlash2-W4A16` в `--tokenizer` не ставить.
 
-Проверка установки внутри контейнера: `docker compose run --rm qwen verify`.
+Проверка установки внутри контейнера: `docker compose --env-file .env.qwen --env-file .env.ui run --rm qwen verify`.
 
 ---
 

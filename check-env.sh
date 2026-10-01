@@ -217,13 +217,13 @@ echo "==========================================================================
 
 if (( ERRORS > 0 )); then
     echo "Result: Host does not meet critical stack requirements."
-    echo "        Resolve the errors above before: docker compose up -d --build"
+    echo "        Resolve the errors above before: docker compose --env-file .env.qwen --env-file .env.ui build && docker compose --env-file .env.qwen --env-file .env.ui up -d"
     exit 1
 elif (( WARNINGS > 0 )); then
     echo "Result: Host is usable, but review warnings above."
-    echo "        Next: docker compose up -d --build"
+    echo "        Next: docker compose --env-file .env.qwen --env-file .env.ui build && docker compose --env-file .env.qwen --env-file .env.ui up -d"
     exit 0
 else
-    echo "Result: Host is ready. Next: docker compose up -d --build"
+    echo "Result: Host is ready. Next: docker compose --env-file .env.qwen --env-file .env.ui build && docker compose --env-file .env.qwen --env-file .env.ui up -d"
     exit 0
 fi

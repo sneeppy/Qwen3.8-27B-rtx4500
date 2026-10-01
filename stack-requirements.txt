@@ -29,7 +29,7 @@ lock_clocks             = not used (Ada boosts under its own 210 W TGP)
 [docker]
 image                   = qwen38-rtx4500-serve:latest (built on the host; no CI registry)
 service                 = qwen
-compose                 = docker-compose.yml
+compose                 = docker-compose.yml; interpolation via --env-file .env.qwen --env-file .env.ui
 dockerfile              = Dockerfile
 cuda_base_image         = nvidia/cuda:13.0.3-base-ubuntu24.04
 listen                  = 127.0.0.1:8080 (vLLM API, loopback)

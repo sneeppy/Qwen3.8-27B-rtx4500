@@ -5,7 +5,7 @@
 # requantization; a fast-variant download of ~1 GB unless FAST_VARIANT=0, and the
 # ~1 GB W4A16 DFlash2 drafter (SPEC=dflash2) unless DFLASH2=0.
 #
-#   docker compose run --rm qwen prepare   (also runs automatically before single/batch)
+#   docker compose --env-file .env.qwen --env-file .env.ui run --rm qwen prepare   (also runs automatically before single/batch)
 set -e
 cd /app
 export PATH=/app/venv/bin:$PATH

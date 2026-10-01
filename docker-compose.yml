@@ -1,7 +1,3 @@
-env_file:
-  - .env.qwen
-  - .env.ui
-
 services:
   qwen:
     image: qwen38-rtx4500-serve:latest
